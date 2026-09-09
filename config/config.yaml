@@ -1,0 +1,51 @@
+# ===== CAU HINH CHUNG CHO DO AN =====
+
+project:
+  name: "FL-SDN QoS Traffic Classification"
+  seed: 42
+
+# ----- Mang SDN -----
+sdn:
+  controller_port: 6653
+  openflow_version: "OpenFlow13"
+  num_zones: 3
+  switches_per_zone: 2
+  hosts_per_switch: 2
+  stats_interval: 10        # giay, chu ky thu flow statistics
+
+# ----- Du lieu -----
+data:
+  dataset: "ISCX-VPN2016"
+  raw_dir: "data/raw"
+  processed_dir: "data/processed"
+  splits_dir: "data/splits"
+  test_size: 0.2
+  val_size: 0.1
+
+# ----- Phan lop QoS -----
+qos:
+  num_classes: 4
+  classes:
+    - delay_sensitive
+    - bandwidth_sensitive
+    - loss_sensitive
+    - best_effort
+
+# ----- Mo hinh -----
+model:
+  type: "cnn1d"             # mlp | cnn1d | lstm | gru
+  input_dim: 30
+  hidden_dim: 128
+  dropout: 0.3
+
+# ----- Federated Learning -----
+fl:
+  num_clients: 3
+  num_rounds: 50
+  local_epochs: 5
+  batch_size: 64
+  learning_rate: 0.001
+  strategy: "fedavg"        # fedavg | fedprox
+  fedprox_mu: 0.01
+  fraction_fit: 1.0
+  min_available_clients: 3

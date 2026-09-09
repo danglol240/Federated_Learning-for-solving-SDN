@@ -1,0 +1,49 @@
+# Moi truong ao
+.venv/
+venv/
+env/
+*-env/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Du lieu (qua lon cho git)
+data/raw/*
+data/interim/*
+data/processed/*
+data/captures/*
+data/splits/*/*
+!data/**/.gitkeep
+
+# File mang
+*.pcap
+*.pcapng
+*.cap
+
+# Mo hinh da train
+checkpoints/*
+!checkpoints/.gitkeep
+*.pth
+*.pt
+*.h5
+
+# Ket qua thuc nghiem
+experiments/*
+!experiments/.gitkeep
+results/figures/*
+results/tables/*
+results/logs/*
+!results/**/.gitkeep
+
+# Bai bao PDF
+docs/papers/*.pdf
+
+# He thong
+.DS_Store
+*.swp
+.vscode/
+.idea/

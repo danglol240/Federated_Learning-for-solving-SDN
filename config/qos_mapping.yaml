@@ -1,0 +1,18 @@
+# Anh xa nhan ung dung ISCX-VPN2016 -> 4 nhom QoS
+# Day la dong gop cua do an (dataset goc khong co nhan QoS)
+
+delay_sensitive:
+  ly_do: "Can do tre va jitter thap"
+  ung_dung: [voip, chat, vpn_voip, vpn_chat]
+
+bandwidth_sensitive:
+  ly_do: "Can bang thong lon, it nhay voi do tre"
+  ung_dung: [streaming, p2p, vpn_streaming, vpn_p2p]
+
+loss_sensitive:
+  ly_do: "Khong duoc mat goi, dung TCP"
+  ung_dung: [file_transfer, ftps, sftp, vpn_file_transfer]
+
+best_effort:
+  ly_do: "Khong nhay cam voi QoS"
+  ung_dung: [browsing, email, vpn_browsing, vpn_email]

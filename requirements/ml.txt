@@ -1,0 +1,30 @@
+# Deep Learning
+torch
+torchvision
+
+# Federated Learning
+flwr>=1.7
+
+# Xu ly du lieu
+numpy
+pandas
+scipy
+scikit-learn
+imbalanced-learn
+pyyaml
+
+# Trich xuat features tu pcap
+nfstream
+
+# Truc quan hoa
+matplotlib
+seaborn
+
+# REST API (cau noi OS-Ken <-> ML)
+flask
+requests
+
+# Notebook
+jupyter
+notebook
+ipykernel

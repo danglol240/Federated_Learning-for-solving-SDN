@@ -1,0 +1,29 @@
+# Phan bo non-IID cho 3 vung mang
+# Tong moi hang = 1.0
+
+client_1:
+  ten: "Van phong"
+  mo_ta: "Chu yeu web browsing va email"
+  phan_bo:
+    delay_sensitive: 0.15
+    bandwidth_sensitive: 0.10
+    loss_sensitive: 0.25
+    best_effort: 0.50
+
+client_2:
+  ten: "Ky tuc xa"
+  mo_ta: "Chu yeu video streaming va P2P"
+  phan_bo:
+    delay_sensitive: 0.20
+    bandwidth_sensitive: 0.50
+    loss_sensitive: 0.15
+    best_effort: 0.15
+
+client_3:
+  ten: "Phong Lab"
+  mo_ta: "Chu yeu VoIP va truyen file lon"
+  phan_bo:
+    delay_sensitive: 0.40
+    bandwidth_sensitive: 0.15
+    loss_sensitive: 0.35
+    best_effort: 0.10

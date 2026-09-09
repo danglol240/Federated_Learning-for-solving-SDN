@@ -1,0 +1,11 @@
+# Cac goi SDN duoc cai qua apt, khong dung pip
+# Ghi lai de tai tao moi truong:
+#
+#   sudo apt install -y mininet
+#     -> keo theo: openvswitch-switch, openvswitch-common,
+#                  python3-openvswitch, python3-os-ken
+#   sudo apt install -y iperf iperf3 hping3 tcpdump d-itg libpcap-dev
+#
+# Kiem tra:
+#   which osken-manager
+#   python3 -c "from os_ken.base import app_manager; print('OK')"
