@@ -1,0 +1,31 @@
+# BAN LUU (2026-09-09): day la ban noniid_distribution.yaml goc, dung cho
+# huong QoS 4-lop (ISCX-VPN2016) - hien KHONG active, xem config/config.yaml.
+# Giu lai de dung lai khi quay ve giai doan QoS. Ban dang active cho huong
+# DDoS detection nam o config/noniid_distribution.yaml.
+
+client_1:
+  ten: "Van phong"
+  mo_ta: "Chu yeu web browsing va email"
+  phan_bo:
+    delay_sensitive: 0.15
+    bandwidth_sensitive: 0.10
+    loss_sensitive: 0.25
+    best_effort: 0.50
+
+client_2:
+  ten: "Ky tuc xa"
+  mo_ta: "Chu yeu video streaming va P2P"
+  phan_bo:
+    delay_sensitive: 0.20
+    bandwidth_sensitive: 0.50
+    loss_sensitive: 0.15
+    best_effort: 0.15
+
+client_3:
+  ten: "Phong Lab"
+  mo_ta: "Chu yeu VoIP va truyen file lon"
+  phan_bo:
+    delay_sensitive: 0.40
+    bandwidth_sensitive: 0.15
+    loss_sensitive: 0.35
+    best_effort: 0.10

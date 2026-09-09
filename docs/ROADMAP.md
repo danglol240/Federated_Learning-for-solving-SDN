@@ -57,3 +57,61 @@ FLOW_LABEL=attack osken-manager --ofp-tcp-listen-port 6653 flow_collector.py
 # Terminal 2 — dựng lại mạng
 sudo python3 src/emulation/topology.py
 ```
+
+## Giai đoạn 3 — So sánh FedAvg / FedProx / FedNova dưới Non-IID cho DDoS detection (≈ 2 tuần)
+
+**Chốt hướng (2026-09-09, thay cho bản nháp ban đầu):** mục tiêu chính của luận văn ở
+giai đoạn này là **so sánh FedAvg/FedProx/FedNova dưới điều kiện Non-IID cho bài toán
+DDoS detection trong SDN** — không phải QoS 4-lớp như khung ban đầu (`config/qos_mapping.yaml`,
+ISCX-VPN2016 vẫn giữ nguyên trong repo cho giai đoạn sau, hiện không active).
+
+- **Dataset chính để train**: CICDDoS2019 — dùng **bản CSV đã trích đặc trưng sẵn qua
+  CICFlowMeter** (mirror trên Kaggle, vd `dhoogla/cicddos2019`), không dùng route pcap +
+  tshark/pyshark của FLAD/LUCID vì nặng và không cần thiết.
+- **Dataset live validation**: CSV Mininet/hping3 tự sinh ở Giai đoạn 2
+  (`data/captures/flow_stats_*.csv`) — chỉ để kiểm tra mô hình trên traffic thật tự tạo,
+  không dùng để train chính.
+- **Bài toán phân loại**: làm cả 2 bản — **binary** (benign/attack) làm trước, **multiclass**
+  theo loại tấn công (benign + LDAP/MSSQL/NetBIOS/Portmap/Syn/UDP/UDPLag/WebDDoS) nâng cấp
+  sau. Xem `config/config.yaml` mục `task.mode`.
+- **Chiến lược FL**: FedAvg và FedProx có sẵn trong `flwr` (đã verify `flwr==1.34.0` có
+  `flwr.server.strategy.FedProx`). **FedNova không có sẵn trong flwr — phải tự cài đặt
+  custom `Strategy`.**
+
+Repo đã có sẵn khung thư mục rỗng cho giai đoạn này (chỉ `__init__.py`): `src/preprocessing/`, `src/fl/`, `src/models/`, `src/baselines/`, `src/evaluation/`, và `data/splits/client_1|2|3/`.
+
+- [x] Clone `flad-federated-learning-ddos` để tham khảo — đọc xong, **quyết định không dựng conda+TensorFlow riêng chỉ để sanity-check** (khác stack, tốn thời gian không cần thiết). Dùng `flad_main.py`/`ann_models.py` làm tham khảo thiết kế vòng lặp FL, viết thẳng bằng `flwr`+`torch`.
+- [ ] **Bạn tự tải CICDDoS2019 CSV từ Kaggle** vào `data/raw/cicddos2019/` (cần tài khoản Kaggle + API token, xem lệnh bên dưới) — mình không có sẵn credential để tải hộ. **Đang chặn tiến độ — mọi bước code bên dưới đã viết xong và test bằng dữ liệu giả lập, chỉ chờ data thật để chạy lại cho ra kết quả thật.**
+- [x] Viết [src/preprocessing/load_cicddos2019.py](../src/preprocessing/load_cicddos2019.py): đọc CSV CICFlowMeter (tự chuẩn hoá tên cột, loại cột định danh, loại dòng Inf/NaN), map `Label` về `task.mode` (binary/multiclass) — đã test bằng CSV giả lập đúng schema CICFlowMeter, cả 2 mode.
+- [x] Viết [src/preprocessing/split_noniid.py](../src/preprocessing/split_noniid.py): chia dữ liệu cho 3 client theo label-skew trong `config/noniid_distribution.yaml` (đã viết lại theo loại tấn công CICDDoS2019 thay vì nhãn QoS cũ, bản QoS lưu ở `noniid_distribution_qos_legacy.yaml`), ghi ra `data/splits/client_{1,2,3}/{train,val,test}.csv` — đã test, có cảnh báo tự động khi 1 lớp không đủ mẫu cho tỉ lệ yêu cầu.
+- [x] Cài mô hình `cnn1d` trong [src/models/cnn1d.py](../src/models/cnn1d.py), tham số hoá theo `config.yaml` (`model.*`, `task.<mode>.num_classes`) — đã test forward pass.
+- [x] Cài FL client trong [src/fl/client.py](../src/fl/client.py) (`flwr.client.NumPyClient`, dùng chung cho cả 3 strategy; tự thêm proximal term khi server gửi `proximal_mu` — đúng cơ chế FedProx của flwr; luôn trả `tau` = số local step đã chạy để FedNova dùng khi aggregate)
+- [x] Cài FL server trong [src/fl/server.py](../src/fl/server.py) + [src/fl/fednova_strategy.py](../src/fl/fednova_strategy.py) (custom, kế thừa `FedAvg`, tự implement công thức chuẩn hoá theo `tau_i`) — **đã chạy smoke test end-to-end cả 3 strategy (FedAvg/FedProx/FedNova) bằng dữ liệu giả lập 3 client, không lỗi, log CSV đúng format `round,loss,accuracy,f1,precision,recall`**
+- [ ] Chạy lại toàn bộ pipeline trên (split_noniid → server.py) với **dữ liệu CICDDoS2019 thật** để có kết quả thật thay vì dữ liệu giả lập
+- [ ] Train một mô hình centralized (gộp toàn bộ dữ liệu, không chia client) làm mốc so sánh — trong `src/baselines/` (chưa viết)
+- [ ] Chạy live validation: nạp `data/captures/flow_stats_*.csv` (Giai đoạn 2) vào model đã train, xem độ chệch so với test set CICDDoS2019 (chưa viết)
+- [ ] Vẽ đồ thị: FedAvg vs FedProx vs FedNova vs Centralized theo accuracy/round, và communication overhead (chưa viết, trong `src/evaluation/`)
+
+### Việc cần cài thêm
+
+- `pip install "flwr[simulation]"` (kéo theo `ray`) — bắt buộc để chạy `src/fl/server.py`, chưa có trong `requirements/ml.txt`, cần thêm vào.
+
+### Cảnh báo đã biết (không chặn tiến độ)
+
+- `client_fn(cid)` trong `src/fl/client.py`/`server.py` dùng API cũ của flwr (`cid` thay vì `Context`) — flwr 1.34.0 báo `DEPRECATED FEATURE`, vẫn chạy được nhưng sẽ bị gỡ ở bản sau. Cần migrate sang API `Context` khi nâng cấp flwr.
+- Ray ghi cảnh báo dung lượng `/tmp` gần đầy trong lúc chạy simulation — theo dõi khi train với dữ liệu CICDDoS2019 thật (nặng hơn nhiều so với data giả lập).
+
+### Tải CICDDoS2019 (Kaggle)
+
+```bash
+# Cai kaggle CLI (trong .venv), can kaggle.json (Account -> Create New Token tren kaggle.com)
+pip install kaggle
+mkdir -p ~/.kaggle && mv ~/Downloads/kaggle.json ~/.kaggle/ && chmod 600 ~/.kaggle/kaggle.json
+
+mkdir -p data/raw/cicddos2019
+kaggle datasets download -d dhoogla/cicddos2019 -p data/raw/cicddos2019 --unzip
+```
+
+### Điểm kiểm tra tiến độ
+
+Nếu FedAvg/FedProx/FedNova đều hội tụ và có accuracy gần với centralized (chênh lệch nhỏ), đồng thời thấy được sự khác biệt hợp lý giữa 3 chiến lược dưới Non-IID (vd FedProx/FedNova ổn định hơn FedAvg khi mức độ lệch dữ liệu tăng) → pipeline ổn, có thể tự tin bước sang Giai đoạn 4.

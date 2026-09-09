@@ -1,7 +1,10 @@
 # ===== CAU HINH CHUNG CHO DO AN =====
+# Trong tam hien tai (theo quyet dinh 2026-09-09): so sanh FedAvg/FedProx/FedNova
+# duoi Non-IID cho bai toan DDoS detection trong SDN. Cau hinh QoS 4-lop
+# (ISCX-VPN2016) van giu trong qos_mapping.yaml cho giai doan sau, chua active.
 
 project:
-  name: "FL-SDN QoS Traffic Classification"
+  name: "FL-SDN DDoS Detection - So sanh FedAvg/FedProx/FedNova duoi Non-IID"
   seed: 42
 
 # ----- Mang SDN -----
@@ -15,26 +18,30 @@ sdn:
 
 # ----- Du lieu -----
 data:
-  dataset: "ISCX-VPN2016"
+  dataset: "CICDDoS2019"    # CSV da trich dac trung qua CICFlowMeter, tai tu Kaggle (vd dhoogla/cicddos2019)
   raw_dir: "data/raw"
   processed_dir: "data/processed"
   splits_dir: "data/splits"
   test_size: 0.2
   val_size: 0.1
+  live_validation_dir: "data/captures"   # CSV Mininet/hping3 tu sinh (Giai doan 2) - CHI de validate mo hinh tren traffic that, KHONG dung de train
 
-# ----- Phan lop QoS -----
-qos:
-  num_classes: 4
-  classes:
-    - delay_sensitive
-    - bandwidth_sensitive
-    - loss_sensitive
-    - best_effort
+# ----- Bai toan phan loai -----
+# mode dang active quyet dinh model/output layer dung ban nao. Lam ca 2 ban
+# (binary lam truoc, multiclass nang cap sau) theo yeu cau.
+task:
+  mode: "binary"            # binary | multiclass
+  binary:
+    num_classes: 2
+    classes: [benign, attack]
+  multiclass:
+    num_classes: 9          # benign + 8 loai tan cong co trong CICDDoS2019
+    classes: [benign, ldap, mssql, netbios, portmap, syn, udp, udplag, webddos]
 
 # ----- Mo hinh -----
 model:
   type: "cnn1d"             # mlp | cnn1d | lstm | gru
-  input_dim: 30
+  input_dim: 30             # placeholder - chinh lai sau khi chon dac trung tu CSV CICDDoS2019 that
   hidden_dim: 128
   dropout: 0.3
 
@@ -45,7 +52,10 @@ fl:
   local_epochs: 5
   batch_size: 64
   learning_rate: 0.001
-  strategy: "fedavg"        # fedavg | fedprox
+  strategy: "fedavg"        # fedavg | fedprox | fednova
   fedprox_mu: 0.01
+  # fedavg, fedprox: co san trong flwr (flwr.server.strategy.FedProx da verify tren flwr==1.34.0)
+  # fednova: KHONG co san trong flwr, phai tu cai dat Strategy rieng (xem src/fl/)
   fraction_fit: 1.0
   min_available_clients: 3
+  noniid_by: "attack_type"  # cach chia non-IID giua 3 client: moi client thien lech ve 1/vai loai attack trong CICDDoS2019 (xem config/noniid_distribution.yaml se viet lai cho phu hop)

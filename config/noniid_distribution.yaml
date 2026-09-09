@@ -1,29 +1,77 @@
-# Phan bo non-IID cho 3 vung mang
-# Tong moi hang = 1.0
+# Phan bo Non-IID cho 3 client (moi client = 1 vung SDN, xem config/config.yaml
+# sdn.num_zones=3). Dung cho huong dang active: so sanh FedAvg/FedProx/FedNova
+# tren CICDDoS2019 (xem docs/ROADMAP.md Giai doan 3).
+#
+# Kieu non-IID: label-skew - moi client thien lech ve 1-2 loai tan cong khac
+# nhau (giong cach lam pho bien trong cac paper FL cho DDoS detection, va
+# giong sample_clients cua flad-federated-learning-ddos: moi client 1 loai
+# attack chinh). Ban QoS cu duoc luu o noniid_distribution_qos_legacy.yaml.
+#
+# Tong moi client (moi khoi multiclass/binary) phai = 1.0. Ten nhan phai
+# khop config/config.yaml task.multiclass.classes / task.binary.classes.
 
-client_1:
-  ten: "Van phong"
-  mo_ta: "Chu yeu web browsing va email"
-  phan_bo:
-    delay_sensitive: 0.15
-    bandwidth_sensitive: 0.10
-    loss_sensitive: 0.25
-    best_effort: 0.50
+multiclass:
+  client_1:
+    ten: "Van phong"
+    mo_ta: "Thien lech ve LDAP + MSSQL"
+    phan_bo:
+      benign: 0.30
+      ldap: 0.35
+      mssql: 0.25
+      netbios: 0.02
+      portmap: 0.02
+      syn: 0.02
+      udp: 0.02
+      udplag: 0.01
+      webddos: 0.01
 
-client_2:
-  ten: "Ky tuc xa"
-  mo_ta: "Chu yeu video streaming va P2P"
-  phan_bo:
-    delay_sensitive: 0.20
-    bandwidth_sensitive: 0.50
-    loss_sensitive: 0.15
-    best_effort: 0.15
+  client_2:
+    ten: "Ky tuc xa"
+    mo_ta: "Thien lech ve Syn + UDP"
+    phan_bo:
+      benign: 0.30
+      ldap: 0.02
+      mssql: 0.02
+      netbios: 0.02
+      portmap: 0.02
+      syn: 0.35
+      udp: 0.25
+      udplag: 0.01
+      webddos: 0.01
 
-client_3:
-  ten: "Phong Lab"
-  mo_ta: "Chu yeu VoIP va truyen file lon"
-  phan_bo:
-    delay_sensitive: 0.40
-    bandwidth_sensitive: 0.15
-    loss_sensitive: 0.35
-    best_effort: 0.10
+  client_3:
+    ten: "Phong Lab"
+    mo_ta: "Thien lech ve NetBIOS + Portmap + UDPLag + WebDDoS"
+    phan_bo:
+      benign: 0.30
+      ldap: 0.02
+      mssql: 0.02
+      netbios: 0.20
+      portmap: 0.20
+      syn: 0.02
+      udp: 0.02
+      udplag: 0.11
+      webddos: 0.11
+
+# Non-IID cho mode binary: lech ti le benign/attack giua cac client (quantity
+# skew) thay vi lech loai attack cu the (vi binary gop het cac loai attack
+# thanh 1 nhan). Neu can label-skew ro hon o binary, co the mo rong sau bang
+# cach van lay mau theo ti le multiclass o tren roi gop nhan.
+binary:
+  client_1:
+    ten: "Van phong"
+    phan_bo:
+      benign: 0.50
+      attack: 0.50
+
+  client_2:
+    ten: "Ky tuc xa"
+    phan_bo:
+      benign: 0.30
+      attack: 0.70
+
+  client_3:
+    ten: "Phong Lab"
+    phan_bo:
+      benign: 0.70
+      attack: 0.30

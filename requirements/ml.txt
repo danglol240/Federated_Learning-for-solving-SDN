@@ -3,7 +3,7 @@ torch
 torchvision
 
 # Federated Learning
-flwr>=1.7
+flwr[simulation]>=1.7
 
 # Xu ly du lieu
 numpy
