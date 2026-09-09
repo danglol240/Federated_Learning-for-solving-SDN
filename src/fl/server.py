@@ -25,6 +25,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "models"))
 
 from client import get_parameters, load_config, make_client_fn  # noqa: E402
 from cnn1d import CNN1D  # noqa: E402
+from dataset import infer_input_dim  # noqa: E402
 from fednova_strategy import FedNova  # noqa: E402
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -92,8 +93,9 @@ def main():
     strategy_name = args.strategy or cfg["fl"]["strategy"]
     mode = cfg["task"]["mode"]
 
+    input_dim = infer_input_dim(args.splits_dir)
     dummy_model = CNN1D(
-        input_dim=cfg["model"]["input_dim"],
+        input_dim=input_dim,
         num_classes=cfg["task"][mode]["num_classes"],
         hidden_dim=cfg["model"]["hidden_dim"],
         dropout=cfg["model"]["dropout"],

@@ -1,10 +1,17 @@
-"""Doc CSV CICDDoS2019 (dac trung da trich qua CICFlowMeter, vd ban Kaggle
-dhoogla/cicddos2019) va chuan hoa ve DataFrame dung chung cho split_noniid.py
-va cac buoc training.
+"""Doc CICDDoS2019 (dac trung da trich qua CICFlowMeter) va chuan hoa ve
+DataFrame dung chung cho split_noniid.py va cac buoc training. Ho tro ca
+.csv (CICFlowMeter goc) va .parquet (ban Kaggle dhoogla/cicddos2019 - da
+lam sach san, khong con cot dinh danh IP/port/timestamp).
 
 CSV CICFlowMeter goc co quirk: ten cot co khoang trang dau (" Label",
 " Source IP"...) va gia tri Infinity/NaN o mot so dong (do chia cho 0 khi
 tinh Flow Bytes/s, Flow Packets/s). Ham load_raw_csv() xu ly ca hai.
+
+Nhan (cot Label) khong dong nhat giua cac file: ngay "training" dung ten
+ngan (LDAP, UDP, UDPLag), ngay "testing" dung tien to DrDoS_ (DrDoS_LDAP)
+va co bien the gach ngang (UDP-lag). Ham _normalize_label() quy ve 1 dang
+truoc khi so khop, tranh loi UDP-lag bi nhan nham thanh lop "udp" (vi
+"udp" la substring cua "udp-lag").
 
 Chay thu:
     python3 src/preprocessing/load_cicddos2019.py --input data/raw/cicddos2019 --mode binary
@@ -20,7 +27,8 @@ import yaml
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Cot dinh danh / khong dung lam dac trung hoc may (leak thong tin hoac khong
-# co y nghia thong ke). Ten da chuan hoa (strip + lower + underscore).
+# co y nghia thong ke). Ten da chuan hoa (strip + lower + underscore). Ban
+# CSV CICFlowMeter goc co cac cot nay, ban parquet da lam sach thi khong.
 ID_COLUMNS = {
     "flow_id", "source_ip", "src_ip", "destination_ip", "dst_ip",
     "timestamp", "simillarhttp", "unnamed:_0",
@@ -33,16 +41,36 @@ def _normalize_col(col: str) -> str:
     return col.strip().lower().replace(" ", "_").replace("/", "_")
 
 
+def _normalize_label(label: str) -> str:
+    """Quy nhan ve 1 dang de so khop chinh xac (khong dung substring):
+    lower, bo tien to 'drdos_', bo dau '-'/'_'/khoang trang.
+    Vd: 'DrDoS_LDAP' -> 'ldap', 'UDP-lag' -> 'udplag', 'UDPLag' -> 'udplag'.
+    """
+    v = label.strip().lower()
+    if v.startswith("drdos_"):
+        v = v[len("drdos_"):]
+    return v.replace("-", "").replace("_", "").replace(" ", "")
+
+
+def _read_one(path):
+    if path.endswith(".parquet"):
+        return pd.read_parquet(path)
+    return pd.read_csv(path, low_memory=False)
+
+
 def load_raw_csv(path_or_dir):
-    """Doc 1 file CSV hoac gop toan bo *.csv trong 1 thu muc."""
+    """Doc 1 file hoac gop toan bo *.csv/*.parquet trong 1 thu muc."""
     if os.path.isdir(path_or_dir):
-        files = sorted(glob.glob(os.path.join(path_or_dir, "**", "*.csv"), recursive=True))
+        files = sorted(
+            glob.glob(os.path.join(path_or_dir, "**", "*.csv"), recursive=True)
+            + glob.glob(os.path.join(path_or_dir, "**", "*.parquet"), recursive=True)
+        )
         if not files:
-            raise FileNotFoundError(f"Khong tim thay file .csv nao trong {path_or_dir}")
-        frames = [pd.read_csv(f, low_memory=False) for f in files]
+            raise FileNotFoundError(f"Khong tim thay file .csv/.parquet nao trong {path_or_dir}")
+        frames = [_read_one(f) for f in files]
         df = pd.concat(frames, ignore_index=True)
     else:
-        df = pd.read_csv(path_or_dir, low_memory=False)
+        df = _read_one(path_or_dir)
 
     df.columns = [_normalize_col(c) for c in df.columns]
 
@@ -78,26 +106,16 @@ def to_feature_label(df, mode, task_cfg):
     raw_label = df["label"].astype(str).str.strip().str.lower()
 
     if mode == "binary":
-        classes = [c.lower() for c in task_cfg["binary"]["classes"]]
         y = raw_label.apply(lambda v: 0 if v == "benign" else 1)
     elif mode == "multiclass":
         classes = [c.lower() for c in task_cfg["multiclass"]["classes"]]
-        alias_to_idx = {}
-        for idx, cls in enumerate(classes):
-            alias_to_idx[cls] = idx
-        def map_label(v):
-            for cls, idx in alias_to_idx.items():
-                if cls == "benign":
-                    if v == "benign":
-                        return idx
-                elif cls in v:
-                    return idx
-            return None
-        y = raw_label.apply(map_label)
+        norm_to_idx = {_normalize_label(cls): idx for idx, cls in enumerate(classes)}
+        y = raw_label.apply(lambda v: norm_to_idx.get(_normalize_label(v)))
         unmapped = y.isna()
         if unmapped.any():
             unknown_vals = sorted(raw_label[unmapped].unique())
-            print(f">>> Canh bao: {unmapped.sum()} dong co nhan khong khop danh sach multiclass, se bi loai: {unknown_vals}")
+            print(f">>> Canh bao: {unmapped.sum()} dong co nhan khong khop danh sach multiclass "
+                  f"trong config.yaml (task.multiclass.classes), se bi loai: {unknown_vals}")
             X = X[~unmapped]
             y = y[~unmapped]
         y = y.astype(int)

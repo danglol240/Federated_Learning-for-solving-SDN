@@ -16,6 +16,15 @@ def _csv_to_tensors(path):
     return X, y
 
 
+def infer_input_dim(splits_dir, client_name="client_1"):
+    """So cot dac trung thuc te (khong tinh 'label') tu file train.csv da
+    chia. Dung de dung model dung shape thay vi cfg['model']['input_dim']
+    (chi la placeholder, khong khop so dac trung that cua CICDDoS2019)."""
+    path = os.path.join(splits_dir, client_name, "train.csv")
+    header = pd.read_csv(path, nrows=0)
+    return header.shape[1] - 1
+
+
 def load_client_data(client_dir, batch_size=64):
     train_X, train_y = _csv_to_tensors(os.path.join(client_dir, "train.csv"))
     val_X, val_y = _csv_to_tensors(os.path.join(client_dir, "val.csv"))

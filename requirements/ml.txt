@@ -12,6 +12,7 @@ scipy
 scikit-learn
 imbalanced-learn
 pyyaml
+pyarrow                  # doc .parquet (CICDDoS2019 ban Kaggle da lam sach)
 
 # Trich xuat features tu pcap
 nfstream

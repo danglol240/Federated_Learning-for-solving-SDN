@@ -13,9 +13,11 @@ Chay thu:
 import argparse
 import os
 
+import joblib
 import numpy as np
 import pandas as pd
 import yaml
+from sklearn.preprocessing import StandardScaler
 
 from load_cicddos2019 import load_raw_csv, to_feature_label, load_config, PROJECT_ROOT
 
@@ -30,7 +32,15 @@ def load_noniid_distribution(mode, config_path=None):
 
 
 def assign_clients(y, distribution, client_size, seed):
-    """Tra ve dict {client_key: list_of_row_index} khong trung lap."""
+    """Tra ve dict {client_key: list_of_row_index} khong trung lap.
+
+    Quan trong: khi 1 lop khong du du lieu de dap ung tong nhu cau cua tat
+    ca client, phai CHIA SE THIEU HUT THEO TI LE nhu cau cua tung client
+    (khong xu ly tuan tu tung client roi vet sach pool - cach do lam client
+    duoc xu ly sau cung bi thieu/mat trang hoan toan, pha vo phan bo non-IID
+    da thiet ke, vd client cuoi muon 70% benign nhung 2 client truoc da lay
+    het benign con lai).
+    """
     rng = np.random.RandomState(seed)
     classes = sorted(y.unique())
     pool = {}
@@ -39,19 +49,36 @@ def assign_clients(y, distribution, client_size, seed):
         rng.shuffle(idx)
         pool[c] = list(idx)
 
-    assignment = {client: [] for client in distribution}
-    for client, meta in distribution.items():
-        phan_bo = meta["phan_bo"]
-        for cls_name, frac in phan_bo.items():
-            cls_key = _match_class_key(cls_name, classes, meta)
-            if cls_key is None or cls_key not in pool:
-                continue
-            want = int(round(frac * client_size))
-            take = pool[cls_key][:want]
-            pool[cls_key] = pool[cls_key][want:]
-            if len(take) < want:
-                print(f">>> Canh bao: client={client} lop={cls_name} thieu du lieu "
-                      f"(muon {want}, chi lay duoc {len(take)})")
+    clients = list(distribution.keys())
+    assignment = {client: [] for client in clients}
+
+    for cls_key in classes:
+        available = len(pool[cls_key])
+        requested = {}
+        for client in clients:
+            meta = distribution[client]
+            frac = None
+            for cls_name, f in meta["phan_bo"].items():
+                if _match_class_key(cls_name, classes, meta) == cls_key:
+                    frac = f
+                    break
+            requested[client] = frac * client_size if frac is not None else 0.0
+
+        total_requested = sum(requested.values())
+        if total_requested <= 0:
+            continue
+
+        scale = min(1.0, available / total_requested) if total_requested > 0 else 0.0
+        if scale < 1.0:
+            print(f">>> Canh bao: lop={cls_key} thieu du lieu toan cuc "
+                  f"(muon tong {int(round(total_requested))}, chi co {available}) "
+                  f"-> chia deu ti le {scale:.2%} cho tat ca client thay vi vet theo thu tu")
+
+        cursor = 0
+        for client in clients:
+            want = int(round(requested[client] * scale))
+            take = pool[cls_key][cursor:cursor + want]
+            cursor += want
             assignment[client].extend(take)
 
     return assignment
@@ -99,6 +126,19 @@ def main():
 
     df = load_raw_csv(args.input)
     X, y = to_feature_label(df, mode, cfg["task"])
+
+    # Chuan hoa dac trung (StandardScaler: mean=0, std=1) - CICDDoS2019 co cac
+    # cot thang do rat khac nhau (Flow Duration ~microsec, byte count...),
+    # khong scale se lam loss no/mat on dinh khi train CNN. Fit tren toan bo
+    # X TRUOC KHI chia client (don gian hoa - moi client dung chung 1 scaler
+    # global thay vi tu fit rieng, chap nhan duoc o quy mo do an). Luu scaler
+    # lai de dung nhat quan khi chay live-validation tren CSV Mininet sau nay.
+    scaler = StandardScaler()
+    X = pd.DataFrame(scaler.fit_transform(X), columns=X.columns, index=X.index)
+    scaler_path = os.path.join(PROJECT_ROOT, "data", "processed", f"scaler_{mode}.joblib")
+    os.makedirs(os.path.dirname(scaler_path), exist_ok=True)
+    joblib.dump({"scaler": scaler, "feature_columns": list(X.columns)}, scaler_path)
+    print(f">>> Da chuan hoa dac trung (StandardScaler), luu scaler vao {scaler_path}")
 
     distribution = load_noniid_distribution(mode)
     for meta in distribution.values():

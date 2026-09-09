@@ -41,7 +41,7 @@ task:
 # ----- Mo hinh -----
 model:
   type: "cnn1d"             # mlp | cnn1d | lstm | gru
-  input_dim: 30             # placeholder - chinh lai sau khi chon dac trung tu CSV CICDDoS2019 that
+  input_dim: 30             # KHONG dung nua - code tu doc so cot that tu data/splits/client_1/train.csv (xem src/fl/dataset.py:infer_input_dim). Giu lai chi de tham khao.
   hidden_dim: 128
   dropout: 0.3
 
