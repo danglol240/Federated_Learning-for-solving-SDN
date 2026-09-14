@@ -30,13 +30,15 @@ data:
 # mode dang active quyet dinh model/output layer dung ban nao. Lam ca 2 ban
 # (binary lam truoc, multiclass nang cap sau) theo yeu cau.
 task:
-  mode: "binary"            # binary | multiclass
+  mode: "binary"        # binary | multiclass
   binary:
     num_classes: 2
     classes: [benign, attack]
   multiclass:
-    num_classes: 9          # benign + 8 loai tan cong co trong CICDDoS2019
-    classes: [benign, ldap, mssql, netbios, portmap, syn, udp, udplag, webddos]
+    num_classes: 13         # benign + 12 loai tan cong - da mo rong tu 9 len 13 (them dns/ntp/snmp/tftp)
+                             # de dung het du lieu that (ban 9 lop cu lam mat 52% dong vi 4 loai nay
+                             # khong nam trong danh sach - xem docs/ROADMAP.md)
+    classes: [benign, ldap, mssql, netbios, portmap, syn, udp, udplag, webddos, dns, ntp, snmp, tftp]
 
 # ----- Mo hinh -----
 model:
@@ -49,13 +51,14 @@ model:
 fl:
   num_clients: 3
   num_rounds: 50
-  local_epochs: 5
+  local_epochs: 1           # giam tu 5 - it buoc local hon giua cac round -> lam ro objective inconsistency ma FedNova xu ly
   batch_size: 64
   learning_rate: 0.001
   strategy: "fedavg"        # fedavg | fedprox | fednova
   fedprox_mu: 0.01
   # fedavg, fedprox: co san trong flwr (flwr.server.strategy.FedProx da verify tren flwr==1.34.0)
   # fednova: KHONG co san trong flwr, phai tu cai dat Strategy rieng (xem src/fl/)
-  fraction_fit: 1.0
+  fraction_fit: 0.34        # Scenario S4 (2026-09-14): participation cuc thap - chi 1/3 client moi round
+  min_fit_clients: 1        # ep fraction_fit thuc su co tac dung (truoc day bi min_fit_clients=min_available_clients=3 de len, xem src/fl/server.py)
   min_available_clients: 3
   noniid_by: "attack_type"  # cach chia non-IID giua 3 client: moi client thien lech ve 1/vai loai attack trong CICDDoS2019 (xem config/noniid_distribution.yaml se viet lai cho phu hop)

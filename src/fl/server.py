@@ -17,13 +17,14 @@ import os
 import sys
 
 import flwr as fl
-from flwr.common import ndarrays_to_parameters
+import torch
+from flwr.common import ndarrays_to_parameters, parameters_to_ndarrays
 from flwr.server import ServerConfig
 
 sys.path.insert(0, os.path.dirname(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "models"))
 
-from client import get_parameters, load_config, make_client_fn  # noqa: E402
+from client import get_parameters, load_config, make_client_fn, set_parameters  # noqa: E402
 from cnn1d import CNN1D  # noqa: E402
 from dataset import infer_input_dim  # noqa: E402
 from fednova_strategy import FedNova  # noqa: E402
@@ -42,10 +43,15 @@ def weighted_average(metrics_list):
 
 def build_strategy(strategy_name, cfg, initial_parameters):
     fl_cfg = cfg["fl"]
+    # min_fit_clients TRUOC DAY bi ep bang min_available_clients -> fraction_fit<1
+    # khong co tac dung gi (luon lay du 3/3 client). Tach rieng de fraction_fit
+    # thuc su tao ra partial participation (vd fraction_fit=0.67 + min_fit_clients=2
+    # -> chi 2/3 client duoc chon moi round).
+    min_fit_clients = fl_cfg.get("min_fit_clients", fl_cfg["min_available_clients"])
     common_kwargs = dict(
         fraction_fit=fl_cfg["fraction_fit"],
         fraction_evaluate=1.0,
-        min_fit_clients=fl_cfg["min_available_clients"],
+        min_fit_clients=min_fit_clients,
         min_evaluate_clients=fl_cfg["min_available_clients"],
         min_available_clients=fl_cfg["min_available_clients"],
         initial_parameters=initial_parameters,
@@ -54,13 +60,33 @@ def build_strategy(strategy_name, cfg, initial_parameters):
     )
 
     if strategy_name == "fedavg":
-        return fl.server.strategy.FedAvg(**common_kwargs)
+        strategy = fl.server.strategy.FedAvg(**common_kwargs)
     elif strategy_name == "fedprox":
-        return fl.server.strategy.FedProx(proximal_mu=fl_cfg["fedprox_mu"], **common_kwargs)
+        strategy = fl.server.strategy.FedProx(proximal_mu=fl_cfg["fedprox_mu"], **common_kwargs)
     elif strategy_name == "fednova":
-        return FedNova(**common_kwargs)
+        strategy = FedNova(**common_kwargs)
     else:
         raise ValueError(f"Chien luoc khong ho tro: {strategy_name}")
+
+    return _capture_last_parameters(strategy)
+
+
+def _capture_last_parameters(strategy):
+    """Boc aggregate_fit de luu lai parameters cua round gan nhat vao
+    strategy.last_parameters - flwr khong tu luu lai gia tri nay, va
+    start_simulation() cung khong tra ve model cuoi cung, chi tra ve History
+    (log so lieu). Can de sau nay torch.save() duoc global model cuoi."""
+    original_aggregate_fit = strategy.aggregate_fit
+
+    def aggregate_fit_and_capture(server_round, results, failures):
+        parameters, metrics = original_aggregate_fit(server_round, results, failures)
+        if parameters is not None:
+            strategy.last_parameters = parameters
+        return parameters, metrics
+
+    strategy.aggregate_fit = aggregate_fit_and_capture
+    strategy.last_parameters = None
+    return strategy
 
 
 def save_history(history, out_path):
@@ -114,6 +140,23 @@ def main():
 
     out_path = os.path.join(PROJECT_ROOT, "results", f"fl_{strategy_name}_{mode}.csv")
     save_history(history, out_path)
+
+    if strategy.last_parameters is not None:
+        set_parameters(dummy_model, parameters_to_ndarrays(strategy.last_parameters))
+        ckpt_path = os.path.join(PROJECT_ROOT, "checkpoints", f"fl_{strategy_name}_{mode}.pt")
+        os.makedirs(os.path.dirname(ckpt_path), exist_ok=True)
+        torch.save({
+            "state_dict": dummy_model.state_dict(),
+            "input_dim": input_dim,
+            "num_classes": cfg["task"][mode]["num_classes"],
+            "hidden_dim": cfg["model"]["hidden_dim"],
+            "dropout": cfg["model"]["dropout"],
+            "mode": mode,
+            "strategy": strategy_name,
+        }, ckpt_path)
+        print(f">>> Da luu model global cuoi cung vao {ckpt_path}")
+    else:
+        print(">>> Canh bao: khong bat duoc parameters cuoi cung, khong luu checkpoint")
 
 
 if __name__ == "__main__":

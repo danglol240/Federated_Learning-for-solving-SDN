@@ -11,47 +11,65 @@
 # khop config/config.yaml task.multiclass.classes / task.binary.classes.
 
 multiclass:
+  # Cap nhat 2026-09-14: mo rong tu 9 len 13 lop (them dns/ntp/snmp/tftp, xem
+  # config/config.yaml task.multiclass.classes) de dung het 431,371 dong that
+  # thay vi bo 52% du lieu. Nhom theo "ho" tan cong de non-IID co y nghia thuc
+  # te: client_1=tan cong nham vao dich vu (service-targeting DrDoS), client_2
+  # =flood co dien, client_3=phan xa/khac (gom ca 2 lop lon nhat NTP=121k va
+  # TFTP=98.9k de tong dung luong 3 client khong qua lech nhau).
   client_1:
     ten: "Van phong"
-    mo_ta: "Thien lech ve LDAP + MSSQL"
+    mo_ta: "Thien lech ve LDAP + MSSQL + DNS (service-targeting DrDoS)"
     phan_bo:
-      benign: 0.30
-      ldap: 0.35
-      mssql: 0.25
+      benign: 0.25
+      ldap: 0.20
+      mssql: 0.20
+      dns: 0.15
+      syn: 0.03
+      udp: 0.03
+      udplag: 0.02
       netbios: 0.02
       portmap: 0.02
-      syn: 0.02
-      udp: 0.02
-      udplag: 0.01
-      webddos: 0.01
+      webddos: 0.02
+      ntp: 0.02
+      snmp: 0.02
+      tftp: 0.02
 
   client_2:
     ten: "Ky tuc xa"
-    mo_ta: "Thien lech ve Syn + UDP"
+    mo_ta: "Thien lech ve Syn + UDP + UDPLag (flood co dien)"
     phan_bo:
-      benign: 0.30
+      benign: 0.25
+      syn: 0.20
+      udp: 0.20
+      udplag: 0.15
       ldap: 0.02
       mssql: 0.02
+      dns: 0.02
       netbios: 0.02
       portmap: 0.02
-      syn: 0.35
-      udp: 0.25
-      udplag: 0.01
-      webddos: 0.01
+      webddos: 0.02
+      ntp: 0.03
+      snmp: 0.02
+      tftp: 0.03
 
   client_3:
     ten: "Phong Lab"
-    mo_ta: "Thien lech ve NetBIOS + Portmap + UDPLag + WebDDoS"
+    mo_ta: "Thien lech ve NetBIOS + Portmap + SNMP + TFTP + NTP + WebDDoS (phan xa/khac)"
     phan_bo:
-      benign: 0.30
-      ldap: 0.02
-      mssql: 0.02
-      netbios: 0.20
-      portmap: 0.20
-      syn: 0.02
-      udp: 0.02
-      udplag: 0.11
-      webddos: 0.11
+      benign: 0.25
+      netbios: 0.08
+      portmap: 0.07
+      snmp: 0.07
+      tftp: 0.15
+      ntp: 0.15
+      webddos: 0.03
+      ldap: 0.03
+      mssql: 0.03
+      dns: 0.03
+      syn: 0.04
+      udp: 0.04
+      udplag: 0.03
 
 # Non-IID cho mode binary: lech ti le benign/attack giua cac client (quantity
 # skew) thay vi lech loai attack cu the (vi binary gop het cac loai attack
@@ -75,3 +93,26 @@ binary:
     phan_bo:
       benign: 0.70
       attack: 0.30
+
+# Scenario S3 (thi nghiem "kich ban" 2026-09-14, xem docs/report/giai_doan_3_phan_tich_ket_qua.md
+# muc 8): skew benign/attack CUC DOAN hon nhieu so ban "binary" o tren, de co lap rieng bien so
+# "muc do label-skew" (giu nguyen participation=100%, local_epochs=5 nhu Scenario S1) va so sanh
+# xem strategy nao chiu duoc skew nang hon.
+binary_extreme:
+  client_1:
+    ten: "Van phong"
+    phan_bo:
+      benign: 0.90
+      attack: 0.10
+
+  client_2:
+    ten: "Ky tuc xa"
+    phan_bo:
+      benign: 0.05
+      attack: 0.95
+
+  client_3:
+    ten: "Phong Lab"
+    phan_bo:
+      benign: 0.95
+      attack: 0.05

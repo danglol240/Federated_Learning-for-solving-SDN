@@ -117,6 +117,9 @@ def main():
     parser.add_argument("--mode", choices=["binary", "multiclass"], default=None)
     parser.add_argument("--client-size", type=int, default=None,
                          help="So mau moi client. Mac dinh = tong so mau // so client.")
+    parser.add_argument("--distribution-key", default=None,
+                         help="Ten khoi trong noniid_distribution.yaml de dung (vd 'binary_extreme'). "
+                              "Mac dinh = giong task.mode (vd 'binary').")
     args = parser.parse_args()
 
     cfg = load_config()
@@ -140,7 +143,7 @@ def main():
     joblib.dump({"scaler": scaler, "feature_columns": list(X.columns)}, scaler_path)
     print(f">>> Da chuan hoa dac trung (StandardScaler), luu scaler vao {scaler_path}")
 
-    distribution = load_noniid_distribution(mode)
+    distribution = load_noniid_distribution(args.distribution_key or mode)
     for meta in distribution.values():
         meta["_classes_order"] = classes_order
 
