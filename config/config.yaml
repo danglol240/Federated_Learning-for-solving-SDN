@@ -46,7 +46,7 @@ model:
   dropout: 0.3
 fl:
   num_clients: 3
-  num_rounds: 1
+  num_rounds: 50
   local_epochs: 5
   client_local_epochs:
   - 1

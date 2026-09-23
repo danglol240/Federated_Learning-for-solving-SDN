@@ -395,6 +395,102 @@ khi các client có τ_i (số bước huấn luyện local) chênh lệch mạn
 chứng qua 3 seed độc lập, đáng đưa vào luận văn. Phần chênh lệch F1 trung bình tuyệt đối vẫn nên
 được trình bày kèm khoảng tin cậy rộng, không nêu như 1 con số chắc chắn.
 
+### 8.2. Kiểm chứng bằng tuning hyperparameter (2026-09-23)
+
+Sau khi thấy FedProx (S3) và FedNova (S5) đều không cho thấy lợi thế lý thuyết ở hyperparameter mặc
+định, đặt câu hỏi: liệu đây là do **chưa tuning đúng**, hay do **bài toán/dataset không tạo đủ điều
+kiện** để lợi thế đó xuất hiện? Đã sweep 1 dải giá trị hợp lý cho mỗi thuật toán và báo cáo TOÀN BỘ
+kết quả (không chỉ chọn giá trị đẹp) để trả lời câu hỏi này một cách trung thực.
+
+#### FedProx: sweep μ trên Scenario S3 (skew cực đoan — điều kiện lý thuyết cần cho FedProx)
+
+| μ | F1 | Precision | Recall | Loss |
+|---|---|---|---|---|
+| 0.01 (mặc định, đã có ở mục 7) | 0.9787 | 0.9619 | 0.9977 | — |
+| 0.1 | 0.9714 | 0.9502 | 0.9964 | 0.0166 |
+| 0.5 | 0.9660 | 0.9425 | 0.9937 | 0.0264 |
+| 1.0 | 0.9660 | 0.9423 | 0.9943 | 0.0325 |
+| **FedAvg (đối chứng)** | **0.9819** | **0.9675** | 0.9981 | — |
+
+**Kết quả: μ càng tăng, F1 càng GIẢM** — ngược hẳn kỳ vọng lý thuyết (μ lớn hơn phải giúp FedProx
+kéo model về gần global hơn, chống Non-IID tốt hơn). Ở mọi mức μ đã thử, FedProx đều thua FedAvg,
+và thua xa hơn khi μ tăng. Diễn giải: proximal term ở đây hoạt động thuần tuý như 1 **lực cản/regularizer** làm chậm hội tụ, không mang lại lợi ích chống drift — vì bài toán CNN1D/CICDDoS2019
+hội tụ dễ dàng (gần ceiling ~99.8%), "client drift" không đủ nghiêm trọng để cơ chế kéo-về của
+FedProx có việc để làm. Đây là bằng chứng khá dứt khoát: **tuning không phải nút thắt của FedProx
+ở đây — bản chất bài toán mới là nút thắt** (đúng như giả thuyết #3 đã nêu trước khi sweep).
+
+#### FedNova: sweep learning_rate trên Scenario S5 (heterogeneous compute — điều kiện lý thuyết cần cho FedNova)
+
+| learning_rate | F1 (round 41-50) | std loss (round 41-50) | F1 nhỏ nhất (50 round) |
+|---|---|---|---|
+| 0.001 (mặc định, mục 8) | 0.9886 | **0.1031** | 0.9282 |
+| 0.0005 | 0.9960 | 0.0074 (**~14 lần ổn định hơn**) | 0.9908 |
+| **0.0001** | **0.9968** | **0.0016 (~64 lần ổn định hơn)** | 0.9759* |
+| FedAvg (đối chứng, lr mặc định 0.001) | 0.9967 | 0.0002 | 0.9956 |
+
+*F1 nhỏ nhất ở lr=0.0001 chỉ xảy ra ở **round 1-4** (giai đoạn khởi động, model các client chưa
+kịp đồng thuận) — từ round 5 trở đi hoàn toàn ổn định (std loss round 41-50 chỉ 0.0016, gần bằng
+FedAvg).
+
+**Kết quả: giả thuyết ĐÚNG** — giảm learning_rate của FedNova xuống 10 lần (0.0001) **giải quyết
+gần như hoàn toàn** sự bất ổn định phát hiện ở mục 8 (std loss giảm từ 0.1031 xuống 0.0016, tức
+~64 lần ổn định hơn), và F1 cuối cùng của FedNova (0.9968) **bắt kịp/nhỉnh hơn FedAvg (0.9967)**
+một chút. Diễn giải: bước chuẩn hoá theo τ_i của FedNova hiệu quả làm **tăng learning rate hiệu
+dụng** khi τ_i giữa các client chênh lệch mạnh (client chạy 8 epoch có τ_i lớn, hệ số chuẩn hoá lớn
+theo tương ứng) — nếu dùng chung learning_rate với FedAvg/FedProx (không điều chỉnh), bước cập nhật
+global sau chuẩn hoá có thể quá lớn ở 1 số round, gây dao động mạnh. **Đây là 1 giới hạn thực tế
+của FedNova cần nêu rõ trong luận văn: FedNova không "plug-and-play" như FedAvg — cần giảm learning
+rate tương ứng với mức độ chênh lệch τ_i giữa các client để phát huy đúng lý thuyết.**
+
+#### Tổng kết 8.2
+
+| Thuật toán | Điều kiện lý thuyết cần | Đã tuning? | Kết quả sau tuning |
+|---|---|---|---|
+| FedProx | Non-IID label-skew mạnh (S3) | Sweep μ ∈ {0.01, 0.1, 0.5, 1.0} | **Không cải thiện** — càng tăng μ càng tệ hơn. Nút thắt là bản chất bài toán (dễ hội tụ), không phải tuning. |
+| FedNova | Compute heterogeneity mạnh (S5) | Sweep lr ∈ {0.001, 0.0005, 0.0001} | **Cải thiện rõ rệt** — giảm LR giải quyết gần hết bất ổn định, F1 bắt kịp FedAvg. Nút thắt là **thiếu điều chỉnh LR theo τ_i**, đã xác nhận và khắc phục được. |
+
+Hai kết quả này bổ sung cho nhau rất tốt cho luận văn: **FedProx** minh chứng rằng lợi thế lý
+thuyết của 1 thuật toán FL không tự động xuất hiện nếu bài toán/dataset không tạo đủ điều kiện thử
+thách (dù đã tuning đúng dải paper gốc dùng) — trong khi **FedNova** minh chứng điều ngược lại:
+lợi thế lý thuyết CÓ tồn tại nhưng bị hyperparameter mặc định che khuất, và việc tuning đúng (giảm
+LR tương ứng τ_i) khôi phục lại lợi thế đó. Đây là 2 câu chuyện có thể trích dẫn nguyên vẹn, mỗi
+câu chuyện minh hoạ 1 khía cạnh khác nhau của việc áp dụng lý thuyết FL vào 1 bài toán thực tế cụ
+thể (DDoS detection/SDN).
+
+**Việc còn thiếu**: kết quả sweep này mới chạy 1 seed/giá trị — nên kiểm chứng lại kết luận
+"lr=0.0001 giúp FedNova ổn định" bằng multi-seed (giống mục 8.1) trước khi đưa vào luận văn như kết
+luận cuối cùng, dù xu hướng (std loss giảm dần đều theo LR giảm dần: 0.1031 → 0.0074 → 0.0016) khá
+nhất quán và hợp lý về mặt cơ chế nên rủi ro là ngẫu nhiên thấp hơn nhiều so với phát hiện ở mục 8.
+
+#### 8.2.1. Kiểm chứng multi-seed cho FedNova lr=0.0001 (2026-09-23)
+
+Đã chạy thêm 2 seed (123, 2024 — cùng bộ seed đã dùng ở mục 8.1) cho FedNova với lr=0.0001, cộng
+lần chạy gốc thành 3 seed, áp dụng đúng quy tắc mục 4-5 của
+[ly_thuyet_chi_so_danh_gia.md](ly_thuyet_chi_so_danh_gia.md).
+
+| Seed | F1 (round 41-50) | std loss (round 41-50) | F1 nhỏ nhất (50 round) — xảy ra ở round nào |
+|---|---|---|---|
+| gốc | 0.9968 | 0.0016 | 0.9759 (round 2) |
+| 123 | 0.9971 | 0.0011 | 0.9483 (round 2) |
+| 2024 | 0.9969 | 0.0006 | 0.9478 (round 2) |
+| **mean ± std (3 seed)** | **0.9969 ± 0.0002** | — | — |
+| **95% CI** | **[0.9967, 0.9971]** | — | — |
+
+So với FedAvg multi-seed (mục 8.1): **0.9968 ± 0.0002, CI [0.9967, 0.9970]** — hai khoảng tin cậy
+gần như **trùng khít hoàn toàn**. Khác với phát hiện gốc ở mục 8 (CI FedNova chồng lấn rộng với
+FedAvg do std giữa seed lớn — 0.0041), lần này std giữa 3 seed của FedNova-đã-tune chỉ **0.0002**,
+bằng đúng FedAvg — tức là tuning không chỉ cải thiện trị trung bình mà còn thu hẹp hẳn độ bất định
+giữa các seed.
+
+Điểm dao động F1 thấp nhất trong cả 3 seed đều rơi vào **round 1-2** (giai đoạn khởi động, trước
+khi các client hội tụ đồng thuận) — không phải dao động ngẫu nhiên rải rác như ở lr=0.001 (mục 8,
+có dip bất thường ở tận round 43). Từ round ~5 trở đi, cả 3 seed đều ổn định hoàn toàn.
+
+**Kết luận (CONFIRMED, không chỉ PLAUSIBLE)**: giảm learning_rate của FedNova xuống 10 lần khi τ_i
+giữa client chênh lệch mạnh **khắc phục được cả vấn đề F1 thấp lẫn vấn đề bất ổn định** đã phát
+hiện ở mục 8, và kết quả này **vững qua cả 3 seed độc lập** với CI hẹp — đây là phát hiện đủ chặt
+để đưa vào luận văn như 1 kết luận chính thức, không cần thêm điều kiện dè dặt như phát hiện gốc.
+
 ## 9. Kết luận
 
 - Đã thử điều kiện khắc nghiệt hơn (partial participation, local_epochs=1) — khoảng cách
@@ -428,3 +524,15 @@ chứng qua 3 seed độc lập, đáng đưa vào luận văn. Phần chênh l�
   X điểm %" (chưa đủ chặt). Đây là kết quả đi **ngược kỳ vọng lý thuyết** (FedNova được thiết kế để
   xử lý tốt hơn chính điều kiện này) — diễn giải khả dĩ: chuẩn hoá theo τ_i có thể khuếch đại nhiễu
   nếu không giảm learning rate tương ứng khi τ_i chênh lệch lớn.
+- **Kiểm chứng bằng tuning (mục 8.2)** — sweep μ cho FedProx (S3) và learning_rate cho FedNova
+  (S5) cho 2 câu trả lời khác nhau, đều đáng đưa vào luận văn: **FedProx không cải thiện dù tăng μ
+  lên tới 1.0** (μ càng lớn F1 càng giảm) → nút thắt là bản chất bài toán quá dễ hội tụ, không phải
+  thiếu tuning. Ngược lại, **FedNova cải thiện rõ rệt khi giảm learning_rate 10 lần** (std loss
+  giảm ~64 lần, F1 bắt kịp FedAvg: 0.9968 vs 0.9967) → xác nhận đúng giả thuyết đặt ra ở mục 8: bất
+  ổn định của FedNova đến từ việc chưa điều chỉnh LR theo τ_i, không phải nhược điểm cố hữu của
+  thuật toán. Kết luận tổng hợp: **lợi thế lý thuyết của 1 thuật toán FL không tự động xuất hiện**
+  — cần vừa đúng điều kiện thử thách (compute/label heterogeneity) vừa đúng hyperparameter đi kèm;
+  thiếu 1 trong 2 đều khiến lợi thế "biến mất" trong thực nghiệm dù về mặt toán học vẫn đúng.
+  Phát hiện "FedNova + lr=0.0001 khắc phục bất ổn định" đã được **kiểm chứng multi-seed (mục
+  8.2.1)**: F1 = 0.9969 ± 0.0002 (3 seed), CI [0.9967, 0.9971] — trùng khít với FedAvg
+  [0.9967, 0.9970] — đây là kết luận **CONFIRMED**, đủ chặt để đưa vào luận văn không cần dè dặt.
