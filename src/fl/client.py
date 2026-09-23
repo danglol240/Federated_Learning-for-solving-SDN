@@ -94,7 +94,7 @@ def evaluate_model(model, data_loader):
 
 
 class FlowerClient(fl.client.NumPyClient):
-    def __init__(self, client_dir, cfg):
+    def __init__(self, client_dir, cfg, client_idx=None):
         self.cfg = cfg
         fl_cfg = cfg["fl"]
         mode = cfg["task"]["mode"]
@@ -109,7 +109,18 @@ class FlowerClient(fl.client.NumPyClient):
             hidden_dim=cfg["model"]["hidden_dim"],
             dropout=cfg["model"]["dropout"],
         )
-        self.local_epochs = fl_cfg["local_epochs"]
+        # client_local_epochs (neu co trong config): moi client chay so epoch
+        # local KHAC NHAU - day la dieu kien kinh dien trong paper FedNova goc
+        # (Wang et al. 2020) de tao "objective inconsistency": client chay
+        # nhieu buoc hon se keo global model ve phia no nhieu hon neu dung
+        # FedAvg cong gop tho, con FedNova chuan hoa theo tau_i de bu lai.
+        # Chua tung test dieu kien nay truoc do (chi moi thu lech nhan/
+        # participation), day la co che dung nhat de FedNova the hien uu the.
+        per_client_epochs = fl_cfg.get("client_local_epochs")
+        if per_client_epochs is not None and client_idx is not None:
+            self.local_epochs = per_client_epochs[client_idx % len(per_client_epochs)]
+        else:
+            self.local_epochs = fl_cfg["local_epochs"]
         self.lr = fl_cfg["learning_rate"]
 
     def get_parameters(self, config):
@@ -136,10 +147,20 @@ class FlowerClient(fl.client.NumPyClient):
         return loss, num_examples, metrics
 
 
-def make_client_fn(cfg, splits_dir):
+def make_client_fn(cfg, splits_dir, run_seed=None):
+    """run_seed (neu co): moi client duoc seed rieng (run_seed*1000 + idx) TRUOC
+    khi tao model/DataLoader, de kiem soat duoc thu tu shuffle batch giua cac
+    lan chay - can thiet cho multi-seed replication (xem
+    docs/report/ly_thuyet_chi_so_danh_gia.md muc 4). Luu y: client_fn chay
+    trong Ray worker process rieng (khong phai process chinh cua server.py),
+    nen torch.manual_seed() phai goi O DAY, khong phai o server.py, moi co
+    tac dung len shuffle cua client."""
     def client_fn(cid):
-        client_dir = os.path.join(splits_dir, f"client_{int(cid) + 1}")
-        return FlowerClient(client_dir, cfg).to_client()
+        idx = int(cid)
+        if run_seed is not None:
+            torch.manual_seed(run_seed * 1000 + idx)
+        client_dir = os.path.join(splits_dir, f"client_{idx + 1}")
+        return FlowerClient(client_dir, cfg, client_idx=idx).to_client()
     return client_fn
 
 

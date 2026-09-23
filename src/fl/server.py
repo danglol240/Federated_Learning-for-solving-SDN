@@ -113,11 +113,34 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--strategy", choices=["fedavg", "fedprox", "fednova"], default=None)
     parser.add_argument("--splits-dir", default=os.path.join(PROJECT_ROOT, "data", "splits"))
+    parser.add_argument("--seed", type=int, default=None,
+                         help="Seed rieng cho lan chay nay (khac project.seed dung de chia du "
+                              "lieu). Dat torch.manual_seed truoc khi khoi tao global model, va "
+                              "truyen xuong client de kiem soat thu tu shuffle batch - dung cho "
+                              "multi-seed replication. Neu dat, output se co hau to _seed<N> de "
+                              "khong ghi de ket qua mac dinh.")
+    parser.add_argument("--mu", type=float, default=None,
+                         help="Override fedprox_mu (chi co tac dung voi --strategy fedprox). "
+                              "Dung de sweep mu ma khong can sua config.yaml. Neu dat, output se "
+                              "co hau to _mu<X>.")
+    parser.add_argument("--lr", type=float, default=None,
+                         help="Override fl.learning_rate cho lan chay nay (dung de sweep LR rieng "
+                              "cho 1 strategy, vd giam LR cho fednova khi tau_i chenh lech manh, "
+                              "khong anh huong config mac dinh dung cho cac strategy khac). Neu "
+                              "dat, output se co hau to _lr<X>.")
     args = parser.parse_args()
 
     cfg = load_config()
     strategy_name = args.strategy or cfg["fl"]["strategy"]
     mode = cfg["task"]["mode"]
+
+    if args.mu is not None:
+        cfg["fl"]["fedprox_mu"] = args.mu
+    if args.lr is not None:
+        cfg["fl"]["learning_rate"] = args.lr
+
+    if args.seed is not None:
+        torch.manual_seed(args.seed)
 
     input_dim = infer_input_dim(args.splits_dir)
     dummy_model = CNN1D(
@@ -129,7 +152,7 @@ def main():
     initial_parameters = ndarrays_to_parameters(get_parameters(dummy_model))
 
     strategy = build_strategy(strategy_name, cfg, initial_parameters)
-    client_fn = make_client_fn(cfg, args.splits_dir)
+    client_fn = make_client_fn(cfg, args.splits_dir, run_seed=args.seed)
 
     history = fl.simulation.start_simulation(
         client_fn=client_fn,
@@ -138,12 +161,19 @@ def main():
         strategy=strategy,
     )
 
-    out_path = os.path.join(PROJECT_ROOT, "results", f"fl_{strategy_name}_{mode}.csv")
+    suffix = ""
+    if args.seed is not None:
+        suffix += f"_seed{args.seed}"
+    if args.mu is not None:
+        suffix += f"_mu{args.mu}"
+    if args.lr is not None:
+        suffix += f"_lr{args.lr}"
+    out_path = os.path.join(PROJECT_ROOT, "results", f"fl_{strategy_name}_{mode}{suffix}.csv")
     save_history(history, out_path)
 
     if strategy.last_parameters is not None:
         set_parameters(dummy_model, parameters_to_ndarrays(strategy.last_parameters))
-        ckpt_path = os.path.join(PROJECT_ROOT, "checkpoints", f"fl_{strategy_name}_{mode}.pt")
+        ckpt_path = os.path.join(PROJECT_ROOT, "checkpoints", f"fl_{strategy_name}_{mode}{suffix}.pt")
         os.makedirs(os.path.dirname(ckpt_path), exist_ok=True)
         torch.save({
             "state_dict": dummy_model.state_dict(),
