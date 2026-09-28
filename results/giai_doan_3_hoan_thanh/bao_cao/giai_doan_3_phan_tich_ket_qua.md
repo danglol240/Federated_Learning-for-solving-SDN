@@ -491,7 +491,89 @@ giữa client chênh lệch mạnh **khắc phục được cả vấn đề F1 
 hiện ở mục 8, và kết quả này **vững qua cả 3 seed độc lập** với CI hẹp — đây là phát hiện đủ chặt
 để đưa vào luận văn như 1 kết luận chính thức, không cần thêm điều kiện dè dặt như phát hiện gốc.
 
-## 9. Kết luận
+## 9. Live validation trên traffic thật (Mininet/hping3) — kiểm tra cross-domain generalization (2026-09-28)
+
+### Động cơ
+
+Toàn bộ kết quả từ mục 1-8 đều đo trên **tập test giữ lại từ chính CICDDoS2019** — cùng phân phối,
+cùng công cụ sinh feature với tập train. Đây là kiểm tra trong phân phối (in-distribution), không
+phải bằng chứng model hoạt động trên traffic thật ngoài đời. Để kiểm tra thật, cần chạy model trên
+dữ liệu **độc lập hoàn toàn** với CICDDoS2019 — dùng hạ tầng Mininet/hping3 đã xây ở Giai đoạn 2.
+
+### Vấn đề kỹ thuật gặp phải và cách giải quyết
+
+Dữ liệu `flow_stats_*.csv` cũ (Giai đoạn 2) chỉ có **19 cột** (OpenFlow flow-table stats thô: packet
+count, byte count, duration...) trong khi model cần **77 cột** đặc trưng CICFlowMeter-style (fwd/bwd
+packet stats, IAT distribution, TCP flag counts, subflow, active/idle...) — 2 schema gần như không
+giao nhau. Giải pháp: xây thêm pipeline capture `.pcap` (tcpdump) trong lúc chạy Mininet, rồi dùng
+**NFStream** để tính lại flow feature và ánh xạ sang đúng 77 cột (`src/preprocessing/extract_features_nfstream.py`) — **59/77 cột tính được thật** từ NFStream, **18/77 cột phải điền 0**
+vì NFStream không track (TCP window size, bulk-transfer stats, active/idle period) — liệt kê rõ
+trong code, không giả vờ khớp 100% CICFlowMeter.
+
+Trong lúc dựng pipeline, gặp và sửa liên tiếp 3 lỗi hạ tầng (không phải lỗi mô hình/thuật toán):
+1. `tcpdump -i any` không lọc phạm vi ban đầu bắt luôn traffic thật của máy (wifi/ethernet), làm
+   phình 1 file lên 11.5GB, **gây hết sạch dung lượng đĩa** giữa chừng — sửa bằng cách lọc đúng
+   subnet Mininet (`net 10.0.0.0/24`) + giới hạn cứng 60s/200MB.
+2. `tcpdump` mặc định tự hạ quyền xuống user hệ thống `tcpdump` trước khi mở file ghi, user đó
+   không có quyền ghi vào thư mục dữ liệu của dự án → tạo file thất bại âm thầm (0 byte, lỗi bị
+   nuốt do stderr bị chặn) — sửa bằng `-Z root` (giữ quyền, script đã chạy qua `sudo`).
+3. `tcpdump -i any` mặc định dùng định dạng **Linux cooked v2** (SLL2, mặc định mới của libpcap) mà
+   NFStream (dựa trên nDPI) chưa hỗ trợ — âm thầm trả về 0 flow không báo lỗi — sửa bằng ép định
+   dạng cũ hơn (`-y LINUX_SLL`).
+
+### Kết quả
+
+**Benign**: chỉ thu được **2 flow** hợp lệ (10.0.0.9↔10.0.0.1, 10.0.0.10↔10.0.0.1) trên tổng 11 cặp
+host dự kiến — 9/11 host còn lại traffic không tới đích (nghi vấn forwarding/OpenFlow của topology
+3-vùng-6-switch, chưa debug sâu thêm vì đây là vấn đề hạ tầng mạng, không phải vấn đề FL/model).
+
+**Attack** (`hping3 -S --flood --rand-source`): thu được **949,638 flow**.
+
+Chạy `live_validate.py` với checkpoint FedAvg (Scenario S5) trên cả 2 tập:
+
+| | Precision | Recall | F1 |
+|---|---|---|---|
+| benign | 0.00 | **1.00** (2/2 đúng) | 0.00 |
+| attack | 0.00 | **0.00** (0/949,638 đúng) | 0.00 |
+
+**Model dự đoán TOÀN BỘ 949,640 mẫu là "benign"** — recall attack = 0%. Đây là **thất bại hoàn
+toàn** khi tổng quát hoá sang traffic thật, nhưng nguyên nhân đã được xác định rõ ràng, không phải
+lỗi ngẫu nhiên hay bug:
+
+### Nguyên nhân gốc: lệch phân phối feature ở mức cấu trúc flow
+
+Kiểm tra dữ liệu attack thu được: **99.5% flow (944,519/949,638) chỉ có 1 packet, thời lượng
+(flow_duration) = 0**. Đối chiếu với scaler đã fit trên CICDDoS2019: **trung bình total_fwd_packets
+= 24.1 gói, trung bình flow_duration = 8.4 giây** (8,404,856 μs) cho toàn bộ dataset train.
+
+`hping3 --rand-source --flood` cố tình đổi source IP ngẫu nhiên ở **mọi gói tin** để né tránh
+tracking theo phiên — hệ quả là mỗi gói SYN trở thành 1 "flow" 5-tuple riêng biệt, hoàn toàn khác
+cấu trúc với các mẫu tấn công trong CICDDoS2019 (được capture/tổng hợp thành các flow nhiều gói,
+kéo dài nhiều giây). Một flow 1-gói/0-giây, sau khi chuẩn hoá theo scaler của CICDDoS2019, rơi vào
+vùng cực đoan của phân phối mà model **chưa từng thấy dạng này trong lúc train ở nhãn "attack"** —
+nó không mang "chữ ký" thống kê (nhiều gói, IAT lặp lại, packet-length pattern...) mà model học
+được để nhận diện tấn công, nên bị phân loại nhầm thành benign.
+
+**Đây là phát hiện thật, có giá trị cho luận văn**: tín hiệu "flood" (tốc độ nhiều kết nối/giây từ
+nhiều nguồn) là thuộc tính **tổng hợp giữa nhiều flow**, không nằm trong đặc trưng của **1 flow đơn
+lẻ** — cách tiếp cận phân loại theo flow-feature (CICFlowMeter/NFStream + CNN1D) vốn dĩ **không
+thấy được** loại tấn công single-packet-per-source này, bất kể model được huấn luyện tốt đến đâu
+trên CICDDoS2019. Đây không phải lỗi của FedAvg/FedProx/FedNova hay của quá trình FL — là giới hạn
+ở tầng biểu diễn đặc trưng (feature representation) khi đối mặt với 1 kiểu tấn công cụ thể mà cách
+sinh traffic (`--rand-source`) khác về bản chất với cách CICDDoS2019 được tạo ra.
+
+### Khuyến nghị nếu muốn khắc phục (chưa làm, ghi nhận làm hướng mở rộng)
+
+1. Bỏ `--rand-source` khi sinh traffic tấn công (dùng `hping3` với 1 nguồn cố định hoặc vài nguồn) để
+   tạo flow nhiều gói hơn, giống cấu trúc CICDDoS2019 hơn — nhưng kém thực tế hơn (DDoS thật thường
+   dùng nguồn giả mạo/phân tán).
+2. Thêm 1 tầng phát hiện bổ sung dựa trên **thống kê tổng hợp theo cửa sổ thời gian** (packets/giây
+   tới 1 đích, số IP nguồn riêng biệt/giây...) thay vì chỉ dựa vào feature của từng flow đơn lẻ — đây
+   chính là cách nhiều hệ thống phát hiện DDoS thực tế hoạt động (rate-based/threshold-based), bổ
+   sung cho phân loại flow-level thay vì thay thế.
+3. Debug thêm vấn đề 9/11 host benign không thông traffic được, để có bộ benign đa dạng hơn.
+
+## 10. Kết luận
 
 - Đã thử điều kiện khắc nghiệt hơn (partial participation, local_epochs=1) — khoảng cách
   FedAvg/FedNova với Centralized doãng rộng hơn (đúng lý thuyết), nhưng **FedNova vẫn chưa vượt
@@ -536,3 +618,12 @@ hiện ở mục 8, và kết quả này **vững qua cả 3 seed độc lập**
   Phát hiện "FedNova + lr=0.0001 khắc phục bất ổn định" đã được **kiểm chứng multi-seed (mục
   8.2.1)**: F1 = 0.9969 ± 0.0002 (3 seed), CI [0.9967, 0.9971] — trùng khít với FedAvg
   [0.9967, 0.9970] — đây là kết luận **CONFIRMED**, đủ chặt để đưa vào luận văn không cần dè dặt.
+- **Live validation trên traffic thật (mục 9)** — chạy checkpoint FedAvg trên dữ liệu Mininet/hping3
+  thật (949,640 flow, trích xuất bằng NFStream) cho kết quả **thất bại hoàn toàn** (recall attack =
+  0%, model đoán mọi thứ là benign). Nguyên nhân xác định rõ: `hping3 --rand-source` tạo 99.5% flow
+  chỉ 1 gói/0 giây, khác hẳn cấu trúc flow nhiều gói/nhiều giây (trung bình 24 gói/8.4s) mà
+  CICDDoS2019 dùng để dạy model nhận diện tấn công — tín hiệu "flood" là thuộc tính tổng hợp giữa
+  nhiều flow, không nằm trong đặc trưng của 1 flow đơn lẻ. **Đây không phải lỗi FL/thuật toán, mà là
+  giới hạn của cách tiếp cận phân loại theo flow-feature** khi gặp kiểu tấn công random-source —
+  cần nêu rõ trong luận văn như 1 giới hạn đã xác định nguyên nhân, kèm hướng khắc phục (phát hiện
+  bổ sung theo thống kê tổng hợp/cửa sổ thời gian thay vì chỉ dựa vào từng flow).
